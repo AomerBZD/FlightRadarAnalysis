@@ -19,10 +19,10 @@ dev:
 	. .devenv/bin/activate && pip install --no-cache-dir -r dev-requirements.txt
 
 lint:
-	pylint src/main.py
+	$(PYTHON_EXE) -m pylint src/main.py
 
 run:
-	python3 src/main.py
+	$(PYTHON_EXE) src/main.py
 
 prod:
 	$(PYTHON_EXE) -m virtualenv --clear .devenv

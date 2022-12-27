@@ -1,0 +1,5 @@
+{
+  "extract.frApi.login": "aomer.bouzidi@gmail.com",
+  "extract.frApi.password": "",
+  "load.outputPath": "./output/"
+}
