@@ -148,7 +148,6 @@ def extract_data(spark, log, config):
     """
     # create API
     fr_api = FlightRadar24API()
-
     if "extract.frApi.login" in config and "extract.frApi.password" in config:
         log.info("logging into FlighRadar24API")
         fr_api.login(config["extract.frApi.login"], config["extract.frApi.password"])
@@ -156,8 +155,8 @@ def extract_data(spark, log, config):
     flights_rdd = spark.sparkContext \
             .parallelize(fr_api.get_flights()) \
             .map(lambda _: get_flight_details(_,
-                                              config["extract.frApi.login"],
-                                              config["extract.frApi.password"])) \
+                                              config.get("extract.frApi.login", None),
+                                              config.get("extract.frApi.password", None))) \
             .filter(bool)
     return spark.createDataFrame(flights_rdd).persist()
 
@@ -356,7 +355,7 @@ def load_data(transformed_df, log, config):
     (transformed_df
      .coalesce(1)
      .write
-     .csv(config["load.outputPath"] + "/test", mode='overwrite'))
+     .csv(config.get("load.outputPath", "output") + "/test", mode='overwrite'))
 
 
 # entry point for PySpark ETL application
