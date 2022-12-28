@@ -148,7 +148,6 @@ def extract_data(spark, log, config):
     """
     # create API
     fr_api = FlightRadar24API()
-
     if "extract.frApi.login" in config and "extract.frApi.password" in config:
         log.info("logging into FlighRadar24API")
         fr_api.login(config["extract.frApi.login"], config["extract.frApi.password"])
@@ -156,8 +155,8 @@ def extract_data(spark, log, config):
     flights_rdd = spark.sparkContext \
             .parallelize(fr_api.get_flights()) \
             .map(lambda _: get_flight_details(_,
-                                              config["extract.frApi.login"],
-                                              config["extract.frApi.password"])) \
+                                              config.get("extract.frApi.login", None),
+                                              config.get("extract.frApi.password", None))) \
             .filter(bool)
     return spark.createDataFrame(flights_rdd).persist()
 
@@ -168,20 +167,21 @@ def transform_data(flights_details_df, log):
     :param config: Parameters
     :return: Transformed DataFrames as a dict.
     """
+    jobs_result = {}
     # ----------------------------- Job 1 ------------------------------------------
     log.info("# J1: What is the company with the most active flights in the world ?")
-    most_active_flight_company = flights_details_df \
+    jobs_result["J1"] = flights_details_df \
             .where(flights_details_df.on_ground == '0') \
             .groupby(flights_details_df.airline_icao)\
             .count()\
             .orderBy(col("count").desc())\
             .limit(1)
-    most_active_flight_company.show()
+    
 
     # ----------------------------- Job 2 ------------------------------------------
     log.info("# J2:  By continent, what are the companies with the most regional active flights "
              "(airports of Origin & Destination within the same continent) ?")
-    most_active_regional_flight_company = flights_details_df \
+    jobs_result["J2"] = flights_details_df \
             .where(flights_details_df.on_ground == '0') \
             .withColumn(
                 'destination_airport_continent',
@@ -198,7 +198,6 @@ def transform_data(flights_details_df, log):
             ) \
             .count() \
             .orderBy(col("count").desc())
-    most_active_regional_flight_company.show()
 
     # ----------------------------- Job 3 ------------------------------------------
     log.info("# J3: World-wide, Which active flight has the longest route ?")
@@ -242,25 +241,26 @@ def transform_data(flights_details_df, log):
             .where(flights_details_df.on_ground == '0') \
             .rdd.map(flight_set_route_distance).toDF() \
             .orderBy(col("route_distance").desc()) \
+            .drop("trail_lat", "trail_lng") \
             .persist()
-    longest_route_flight.limit(1).show()
+
+    jobs_result["J3"] = longest_route_flight.limit(1)
 
     # ----------------------------- Job 4 ------------------------------------------
     log.info("# J4: By continent, what is the average route distance ? "
              "(flight localization by airport of origin)")
-    average_route_flight = longest_route_flight \
+    jobs_result["J4"] = longest_route_flight \
             .withColumn(
                 'origin_airport_continent',
                 split(col('origin_airport_timezone_name'), '/').getItem(0)
             ) \
             .groupby(col("origin_airport_continent")) \
             .agg(avg(col("route_distance")))
-    average_route_flight.show()
 
     # ----------------------------- Job 5.1 -----------------------------------------
     log.info("# J5.1: Which leading airplane manufacturer has the most active "
              "flights in the world ?")
-    leading_airplane_manufacturer = flights_details_df \
+    jobs_result["J5.1"] = flights_details_df \
             .withColumn(
                 'aircraft_manufacturer',
                 split(flights_details_df['aircraft_model'], ' ').getItem(0)
@@ -268,33 +268,31 @@ def transform_data(flights_details_df, log):
             .groupby(col('aircraft_manufacturer')) \
             .count() \
             .orderBy(col("count").desc())
-    leading_airplane_manufacturer.show()
+    
 
     # ----------------------------- Job 5.2 -----------------------------------------
     log.info("# J5.2: By continent, what is the most frequent airplane model ?"
              " (airplane localization by airport of origin)")
-    leading_airplane_model = flights_details_df \
+    jobs_result["J5.2"] = flights_details_df \
             .groupby(col('aircraft_model')) \
             .count() \
             .orderBy(col("count").desc())
-    leading_airplane_model.show()
 
     # ----------------------------- Job 6 ------------------------------------------
     log.info("# J6: By company registration country, what are the tops 3 airplanes model flying ?")
     company_registration_country_col = "origin_airport_country_code"
     airplane_model_col = "aircraft_model"
     win_spec = Window.partitionBy(company_registration_country_col).orderBy(col("count").desc())
-    top_3_airplane_model_by_registration_country = flights_details_df \
+    jobs_result["J6"] = flights_details_df \
             .groupby(col(company_registration_country_col), col(airplane_model_col)) \
             .count() \
             .withColumn("rank", rank().over(win_spec))\
             .where(col("rank") <= 3)
-    top_3_airplane_model_by_registration_country.show()
 
     # ----------------------------- Job 7.1 -----------------------------------------
     log.info("# J7.1: By continent, what airport is the most popular destination ?")
     win_spec = Window.partitionBy("destination_airport_continent").orderBy(col("count").desc())
-    popular_destination_by_continent = flights_details_df \
+    jobs_result["J7.1"] = flights_details_df \
             .withColumn(
                 'destination_airport_continent',
                 split(flights_details_df['destination_airport_timezone_name'], '/').getItem(0)
@@ -303,11 +301,10 @@ def transform_data(flights_details_df, log):
             .count() \
             .withColumn("rank", rank().over(win_spec)) \
             .where(col("rank") == 1)
-    popular_destination_by_continent.show()
 
     # ----------------------------- Job 7.2 -----------------------------------------
     log.info("# J7.2: What airport airport has the greatest inbound/outbound flights difference ?")
-    airport_inout_difference = flights_details_df \
+    jobs_result["J7.2"] = flights_details_df \
             .withColumnRenamed("destination_airport_name", "airport_name") \
             .groupby(col('airport_name')) \
             .count() \
@@ -328,12 +325,10 @@ def transform_data(flights_details_df, log):
                 "(outbound_flights - inbound_flights) as flights_inout_difference") \
             .orderBy(col("flights_inout_difference").desc())
 
-    airport_inout_difference.show()
-
     # ----------------------------- Job 8 ------------------------------------------
     log.info("# J8: By continent, what is the average active flight speed ?"
              " (flight localization by airport of origin)")
-    average_speed_active_flight = longest_route_flight\
+    jobs_result["J8"] = longest_route_flight\
             .where(longest_route_flight.on_ground == '0') \
             .withColumn(
                 'origin_airport_continent',
@@ -341,22 +336,24 @@ def transform_data(flights_details_df, log):
             ) \
             .groupby(col("origin_airport_continent")) \
             .agg(avg(col("ground_speed")))
-    average_speed_active_flight.show()
 
-    return average_speed_active_flight
+    return jobs_result
 
 
-def load_data(transformed_df, log, config):
+def load_data(transformed_dfs_dict, log, config):
     """Collect data locally and write to CSV.
 
-    :param df: DataFrame to print.
+    :param df: DataFrames to print.
     :return: None
     """
-    log.info("loading data into csv file")
-    (transformed_df
-     .coalesce(1)
-     .write
-     .csv(config["load.outputPath"] + "/test", mode='overwrite'))
+
+    for job_name, transformed_df in transformed_dfs_dict.items():
+        log.info(f"loading " + job_name + " data into csv file")
+        transformed_df.show()
+        transformed_df \
+	     .coalesce(1) \
+	     .write \
+	     .csv(config.get("load.outputPath/", "output/") + job_name, mode='overwrite')
 
 
 # entry point for PySpark ETL application
