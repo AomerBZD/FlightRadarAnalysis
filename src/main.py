@@ -176,7 +176,8 @@ def transform_data(flights_details_df, log):
             .count()\
             .orderBy(col("count").desc())\
             .limit(1)
-    
+
+    jobs_result["J1"].show()
 
     # ----------------------------- Job 2 ------------------------------------------
     log.info("# J2:  By continent, what are the companies with the most regional active flights "
@@ -198,6 +199,8 @@ def transform_data(flights_details_df, log):
             ) \
             .count() \
             .orderBy(col("count").desc())
+
+    jobs_result["J2"].show()
 
     # ----------------------------- Job 3 ------------------------------------------
     log.info("# J3: World-wide, Which active flight has the longest route ?")
@@ -246,6 +249,8 @@ def transform_data(flights_details_df, log):
 
     jobs_result["J3"] = longest_route_flight.limit(1)
 
+    jobs_result["J3"].show()
+
     # ----------------------------- Job 4 ------------------------------------------
     log.info("# J4: By continent, what is the average route distance ? "
              "(flight localization by airport of origin)")
@@ -256,6 +261,8 @@ def transform_data(flights_details_df, log):
             ) \
             .groupby(col("origin_airport_continent")) \
             .agg(avg(col("route_distance")))
+
+    jobs_result["J4"].show()
 
     # ----------------------------- Job 5.1 -----------------------------------------
     log.info("# J5.1: Which leading airplane manufacturer has the most active "
@@ -268,7 +275,8 @@ def transform_data(flights_details_df, log):
             .groupby(col('aircraft_manufacturer')) \
             .count() \
             .orderBy(col("count").desc())
-    
+
+    jobs_result["J5.1"].show()
 
     # ----------------------------- Job 5.2 -----------------------------------------
     log.info("# J5.2: By continent, what is the most frequent airplane model ?"
@@ -277,6 +285,8 @@ def transform_data(flights_details_df, log):
             .groupby(col('aircraft_model')) \
             .count() \
             .orderBy(col("count").desc())
+
+    jobs_result["J5.2"].show()
 
     # ----------------------------- Job 6 ------------------------------------------
     log.info("# J6: By company registration country, what are the tops 3 airplanes model flying ?")
@@ -288,6 +298,8 @@ def transform_data(flights_details_df, log):
             .count() \
             .withColumn("rank", rank().over(win_spec))\
             .where(col("rank") <= 3)
+
+    jobs_result["J6"].show()
 
     # ----------------------------- Job 7.1 -----------------------------------------
     log.info("# J7.1: By continent, what airport is the most popular destination ?")
@@ -301,6 +313,8 @@ def transform_data(flights_details_df, log):
             .count() \
             .withColumn("rank", rank().over(win_spec)) \
             .where(col("rank") == 1)
+
+    jobs_result["J7.1"].show()
 
     # ----------------------------- Job 7.2 -----------------------------------------
     log.info("# J7.2: What airport airport has the greatest inbound/outbound flights difference ?")
@@ -325,6 +339,8 @@ def transform_data(flights_details_df, log):
                 "(outbound_flights - inbound_flights) as flights_inout_difference") \
             .orderBy(col("flights_inout_difference").desc())
 
+    jobs_result["J7.2"].show()
+
     # ----------------------------- Job 8 ------------------------------------------
     log.info("# J8: By continent, what is the average active flight speed ?"
              " (flight localization by airport of origin)")
@@ -337,6 +353,8 @@ def transform_data(flights_details_df, log):
             .groupby(col("origin_airport_continent")) \
             .agg(avg(col("ground_speed")))
 
+    jobs_result["J8"].show()
+
     return jobs_result
 
 
@@ -348,11 +366,11 @@ def load_data(transformed_dfs_dict, log, config):
     """
 
     for job_name, transformed_df in transformed_dfs_dict.items():
-        log.info(f"loading " + job_name + " data into csv file")
-        transformed_df.show()
+        log.info("loading " + job_name + " data into csv file")
         transformed_df \
 	     .coalesce(1) \
 	     .write \
+             .option("header", "true") \
 	     .csv(config.get("load.outputPath/", "output/") + job_name, mode='overwrite')
 
 
